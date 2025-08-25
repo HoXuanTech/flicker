@@ -1,6 +1,358 @@
-<!doctype html>
-<html><head><meta charset="utf-8"><title>Test</title></head>
-<body style="font-family:system-ui;padding:24px">
-<h1>Hello GitHub Pages 👋</h1>
-<p>如果你看到這行字，代表 Pages 已經正常運作。</p>
-</body></html>
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Web 版去背合成 & 影片抽幀匯出 PDF</title>
+<style>
+  :root{
+    --bg:#0f1422; --card:#161b2a; --muted:#93a0ad; --text:#e9eef6; --accent:#7cc0ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(160deg,#0b0e13,#0f1422);color:var(--text);font-family:system-ui,Segoe UI,Roboto,"Noto Sans TC";}
+  .wrap{max-width:1200px;margin:24px auto;padding:0 16px}
+  h1{font-size:22px;margin:0 0 14px}
+  .grid{display:grid;grid-template-columns:1.2fr .8fr;gap:16px}
+  .card{background:var(--card);border:1px solid rgba(255,255,255,.06);border-radius:14px;padding:14px}
+  .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+  label{font-size:13px;color:var(--muted)}
+  input[type="number"], input[type="text"]{width:90px;padding:6px 8px;border-radius:8px;border:1px solid rgba(255,255,255,.15);background:#0e1320;color:var(--text)}
+  input[type="range"]{width:120px}
+  button{padding:8px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.18);background:#1c2438;color:var(--text);cursor:pointer}
+  button.primary{background:#2563eb;border-color:#2563eb}
+  video, canvas{width:100%;max-height:360px;background:#000;border-radius:10px}
+  .hint{font-size:12px;color:var(--muted)}
+  .cols{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .sep{height:1px;background:rgba(255,255,255,.08);margin:10px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Web 版即時去背合成 + 影片抽幀匯出 A4 PDF（2×5）</h1>
+  <div class="grid">
+    <div class="card">
+      <h2>即時影像合成（攝影機 → 去背 + 背景圖/影片）</h2>
+      <div class="row">
+        <button id="btnCam" class="primary">啟用攝影機</button>
+        <span class="hint">允許瀏覽器使用相機</span>
+      </div>
+      <div class="cols">
+        <div>
+          <label>原始攝影機</label>
+          <video id="cam" playsinline muted></video>
+        </div>
+        <div>
+          <label>合成預覽</label>
+          <canvas id="mix"></canvas>
+        </div>
+      </div>
+
+      <div class="sep"></div>
+      <h3>背景來源</h3>
+      <div class="row">
+        <input type="file" id="bgImage" accept="image/*" />
+        <label>← 背景圖片</label>
+      </div>
+      <div class="row">
+        <input type="file" id="bgVideo" accept="video/*" />
+        <label>← 背景影片（自動循環）</label>
+      </div>
+
+      <div class="sep"></div>
+      <h3>HSV 去背範圍</h3>
+      <div class="row">
+        <label>下界 H</label><input type="number" id="lh" value="30" min="0" max="180">
+        <label>S</label><input type="number" id="ls" value="50" min="0" max="255">
+        <label>V</label><input type="number" id="lv" value="90" min="0" max="255">
+      </div>
+      <div class="row">
+        <label>上界 H</label><input type="number" id="uh" value="136" min="0" max="180">
+        <label>S</label><input type="number" id="us" value="255" min="0" max="255">
+        <label>V</label><input type="number" id="uv" value="236" min="0" max="255">
+      </div>
+      <div class="row">
+        <button id="btnStart">開始合成</button>
+        <button id="btnStop">停止合成</button>
+        <span class="hint">若 CPU 吃重，可先降低攝影機解析度或關閉背景影片</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>匯出 PDF（影片抽幀 → 12:7 裁切 → A4 排版）</h2>
+      <div class="row">
+        <input type="file" id="targetVideo" accept="video/*" />
+        <label>← 目標影片</label>
+      </div>
+      <div class="row">
+        <label>每幾幀取 1 張</label>
+        <input type="number" id="frameInterval" value="20" min="1" />
+      </div>
+      <div class="sep"></div>
+      <h3>版面（mm）A4 直式 / 每頁 2 × 5</h3>
+      <div class="row">
+        <label>單張寬</label><input type="number" id="imgW" value="96" step="0.1">
+        <label>單張高</label><input type="number" id="imgH" value="56" step="0.1">
+      </div>
+      <div class="row">
+        <label>邊界 X</label><input type="number" id="mx" value="11" step="0.1">
+        <label>邊界 Y</label><input type="number" id="my" value="7.5" step="0.1">
+      </div>
+      <div class="row">
+        <label>水平間距</label><input type="number" id="sx" value="4" step="0.1">
+        <label>垂直間距</label><input type="number" id="sy" value="1" step="0.1">
+      </div>
+      <div class="row">
+        <button id="btnMakePDF" class="primary">輸出 PDF</button>
+      </div>
+      <div class="hint">
+        會依間隔抽幀、中央裁切為 12:7、縮放成 600×350，再依 mm 配置排入 A4；輸出檔名：<em>Output_目標影片名稱.pdf</em>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- jsPDF CDN -->
+<script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js"></script>
+<script>
+(() => {
+  const cam = document.getElementById('cam');
+  const mix = document.getElementById('mix');
+  const mctx = mix.getContext('2d', { willReadFrequently: true });
+
+  const btnCam   = document.getElementById('btnCam');
+  const btnStart = document.getElementById('btnStart');
+  const btnStop  = document.getElementById('btnStop');
+
+  const bgImageInput = document.getElementById('bgImage');
+  const bgVideoInput = document.getElementById('bgVideo');
+
+  const lh = document.getElementById('lh'), ls = document.getElementById('ls'), lv = document.getElementById('lv');
+  const uh = document.getElementById('uh'), us = document.getElementById('us'), uv = document.getElementById('uv');
+
+  const targetVideoInput = document.getElementById('targetVideo');
+  const frameIntervalEl = document.getElementById('frameInterval');
+
+  const imgWEl = document.getElementById('imgW');
+  const imgHEl = document.getElementById('imgH');
+  const mxEl   = document.getElementById('mx');
+  const myEl   = document.getElementById('my');
+  const sxEl   = document.getElementById('sx');
+  const syEl   = document.getElementById('sy');
+  const btnMakePDF = document.getElementById('btnMakePDF');
+
+  let bgImage = null;          // HTMLImageElement
+  let bgVideo = null;          // HTMLVideoElement (loop)
+  let animId = null;
+  let camStream = null;
+
+  // 基本畫面大小（與桌面版一致）
+  const W = 640, H = 480;
+  mix.width = W; mix.height = H;
+
+  // 啟用攝影機
+  btnCam.addEventListener('click', async () => {
+    try{
+      camStream = await navigator.mediaDevices.getUserMedia({ video: { width: W, height: H }, audio:false });
+      cam.srcObject = camStream;
+      await cam.play();
+    }catch(err){
+      alert('無法開啟攝影機：' + err.message);
+    }
+  });
+
+  // 載入背景圖片
+  bgImageInput.addEventListener('change', e => {
+    const file = e.target.files?.[0];
+    if(!file) return;
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      bgImage = img;
+      // 一但有圖片，就把影片背景清掉（避免同時）
+      if(bgVideo){ bgVideo.pause(); bgVideo = null; }
+    };
+    img.src = url;
+  });
+
+  // 載入背景影片（循環）
+  bgVideoInput.addEventListener('change', e => {
+    const file = e.target.files?.[0];
+    if(!file) return;
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.src = url;
+    v.loop = true;
+    v.muted = true;
+    v.playsInline = true;
+    v.oncanplay = () => v.play();
+    bgVideo = v;
+    // 有影片就把圖片背景清掉
+    bgImage = null;
+  });
+
+  // RGB -> HSV（H:0~180, S/V:0~255，模擬 OpenCV 範圍）
+  function rgb2hsv(r,g,b){
+    r/=255; g/=255; b/=255;
+    const max=Math.max(r,g,b), min=Math.min(r,g,b);
+    let h=0, s, v=max;
+
+    const d = max-min;
+    s = max===0 ? 0 : d/max;
+
+    if(d === 0) h = 0;
+    else {
+      switch(max){
+        case r: h = ((g-b)/d + (g<b?6:0)); break;
+        case g: h = ((b-r)/d + 2); break;
+        case b: h = ((r-g)/d + 4); break;
+      }
+      h /= 6; // 0~1
+    }
+    // 映射到 OpenCV 慣用範圍
+    return [Math.round(h*180), Math.round(s*255), Math.round(v*255)];
+  }
+
+  // 逐幀合成
+  function render(){
+    if(!cam.videoWidth || !cam.videoHeight){
+      animId = requestAnimationFrame(render);
+      return;
+    }
+    // 先畫背景
+    if(bgImage){
+      mctx.drawImage(bgImage, 0, 0, W, H);
+    }else if(bgVideo && bgVideo.readyState >= 2){
+      mctx.drawImage(bgVideo, 0, 0, W, H);
+    }else{
+      mctx.fillStyle = "#000"; mctx.fillRect(0,0,W,H);
+    }
+
+    // 擷取攝影機到暫時畫布
+    const tmp = document.createElement('canvas');
+    tmp.width=W; tmp.height=H;
+    const tctx = tmp.getContext('2d', { willReadFrequently: true});
+    tctx.drawImage(cam, 0, 0, W, H);
+
+    // 取像素
+    const bgData = mctx.getImageData(0,0,W,H);
+    const fgData = tctx.getImageData(0,0,W,H);
+    const bd = bgData.data;
+    const fd = fgData.data;
+
+    const lH=+lh.value, lS=+ls.value, lV=+lv.value;
+    const uH=+uh.value, uS=+us.value, uV=+uv.value;
+
+    // 將綠幕像素替換為背景，非綠幕保留前景
+    for(let i=0; i<fd.length; i+=4){
+      const r = fd[i], g = fd[i+1], b = fd[i+2], a = fd[i+3];
+      const [h,s,v] = rgb2hsv(r,g,b);
+      const inRange = (h>=lH && h<=uH) && (s>=lS && s<=uS) && (v>=lV && v<=uV);
+      if(!inRange){
+        // 非綠幕 → 用前景覆蓋到 mix
+        bd[i] = r; bd[i+1] = g; bd[i+2] = b; bd[i+3] = a;
+      } // 若是綠幕像素，就保留原先背景像素（bd）
+    }
+    mctx.putImageData(bgData, 0, 0);
+
+    animId = requestAnimationFrame(render);
+  }
+
+  btnStart.addEventListener('click', () => {
+    if(!animId) animId = requestAnimationFrame(render);
+  });
+  btnStop.addEventListener('click', () => {
+    if(animId){ cancelAnimationFrame(animId); animId=null; }
+  });
+
+  // ---------- 影片抽幀 + PDF ----------
+  btnMakePDF.addEventListener('click', async () => {
+    const file = targetVideoInput.files?.[0];
+    if(!file){ alert('請先選擇目標影片'); return; }
+
+    const interval = Math.max(1, parseInt(frameIntervalEl.value || '20',10));
+    const imageWmm = parseFloat(imgWEl.value || '96');
+    const imageHmm = parseFloat(imgHEl.value || '56');
+    const marginXmm = parseFloat(mxEl.value || '11');
+    const marginYmm = parseFloat(myEl.value || '7.5');
+    const spacingXmm = parseFloat(sxEl.value || '4');
+    const spacingYmm = parseFloat(syEl.value || '1');
+
+    // 準備 video 元件載入檔案
+    const url = URL.createObjectURL(file);
+    const v = document.createElement('video');
+    v.src = url;
+    v.preload = 'metadata';
+    v.muted = true;
+    v.playsInline = true;
+
+    await new Promise(res => { v.onloadedmetadata = res; });
+    const fps = v.videoWidth && v.videoHeight ? (v.frameRate || 30) : 30; // 有些瀏覽器沒有 frameRate
+    const step = 1 / fps * interval; // 每「interval 幀」的時間步長
+
+    // 用於擷取與裁切(12:7)
+    const cap = document.createElement('canvas'); // 原尺寸
+    const cctx = cap.getContext('2d');
+    cap.width = v.videoWidth || 1280;
+    cap.height= v.videoHeight|| 720;
+
+    const out = document.createElement('canvas'); // 裁切後縮放
+    const octx = out.getContext('2d');
+    out.width = 600; out.height = 350; // 與桌面版一致的像素縮放
+
+    // jsPDF
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({orientation:'p', unit:'mm', format:'a4'});
+
+    const perRow = 2, perCol = 5;
+    let placed = 0;
+
+    function placeImage(imgDataUrl){
+      if(placed % (perRow*perCol) === 0 && placed !== 0){
+        pdf.addPage();
+      } else if(placed === 0){
+        // 第一張自動有一頁
+      }
+      const idx = placed % (perRow*perCol);
+      const col = Math.floor(idx / perCol) % perRow; // 0..1
+      const row = idx % perCol; // 0..4
+      const x = marginXmm + col * (imageWmm + spacingXmm);
+      const y = marginYmm + row * (imageHmm + spacingYmm);
+      pdf.addImage(imgDataUrl, 'JPEG', x, y, imageWmm, imageHmm);
+      placed++;
+    }
+
+    // 逐時間點擷取
+    const duration = v.duration || 0;
+    for(let t=0; t<=duration; t+=step){
+      await new Promise(res => {
+        v.currentTime = Math.min(t, duration);
+        v.onseeked = () => { res(); };
+      });
+      // 畫到暫存畫布
+      cctx.drawImage(v, 0, 0, cap.width, cap.height);
+
+      // 中央裁切為 12:7
+      const targetRatio = 12/7;
+      let tw = Math.min(cap.width, Math.floor(cap.height * targetRatio));
+      let th = Math.min(cap.height, Math.floor(cap.width / targetRatio));
+      const cx = Math.floor(cap.width/2), cy = Math.floor(cap.height/2);
+      const sx = Math.max(0, cx - Math.floor(tw/2));
+      const sy = Math.max(0, cy - Math.floor(th/2));
+
+      // 縮放成 600x350
+      octx.clearRect(0,0,out.width,out.height);
+      octx.drawImage(cap, sx, sy, tw, th, 0, 0, out.width, out.height);
+
+      const dataUrl = out.toDataURL('image/jpeg', 0.9);
+      placeImage(dataUrl);
+    }
+
+    const base = (file.name || 'Exported').replace(/\.[^/.]+$/, '');
+    pdf.save(`Output_${base}.pdf`);
+    URL.revokeObjectURL(url);
+    alert('PDF 已輸出完成。');
+  });
+})();
+</script>
+</body>
+</html>
